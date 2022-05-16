@@ -25,6 +25,7 @@ var (
 	nSMeta   bool
 	ySDerv   bool
 	resume   bool
+	nStime   bool
 
 	sources = []string{"original", "metadata"}
 )
@@ -39,6 +40,7 @@ func init() {
 	Cmd.Flags().BoolVar(&nSMeta, "no-metadata", false, "when enabled, does not save items with a source of metadata")
 	Cmd.Flags().BoolVar(&ySDerv, "yes-derivative", false, "when enabled, does save items with a source of derivative")
 	Cmd.Flags().BoolVar(&resume, "resume", false, "When enabled, performs a deeper check for item completion")
+	Cmd.Flags().BoolVar(&nStime, "no-time", false, "when enabled, does not use metadata's time")
 }
 
 // Cmd is the cobra.Command
@@ -103,11 +105,16 @@ func dlItem(dir, name string, b *mbpp.BarProxy) {
 		for _, item := range arr {
 			n := string(item.GetStringBytes("name"))
 			s := string(item.GetStringBytes("source"))
+			ut, err := strconv.ParseInt(string(item.GetStringBytes("mtime")), 10, 64)
+			t := time.Unix(ut, 0)
+			if err != nil || nStime {
+				t = time.Now()
+			}
 			if onlyMeta {
 				if n != name+"_meta.xml" {
 					continue
 				}
-				go saveTo(dir2, name, n, b)
+				go saveTo(dir2, name, n, b, t)
 				return
 			}
 			if !stringsu.Contains(sources, s) {
@@ -116,7 +123,7 @@ func dlItem(dir, name string, b *mbpp.BarProxy) {
 			bar.AddToTotal(1)
 			wg.Add(1)
 			go func() {
-				saveTo(dir2, name, n, bar)
+				saveTo(dir2, name, n, bar, t)
 				wg.Done()
 			}()
 		}
@@ -152,9 +159,13 @@ func dlCollection(dir, name string) {
 	})
 }
 
-func saveTo(dir, item, file string, b *mbpp.BarProxy) {
+func saveTo(dir, item, file string, b *mbpp.BarProxy, t time.Time) {
 	pathS := dir + "/" + file
 	os.MkdirAll(filepath.Dir(pathS), os.ModePerm)
 	urlS := "https://archive.org/download/" + item + "/" + file
 	mbpp.CreateDownloadJob(urlS, pathS, b)
+	err := os.Chtimes(pathS, t.Local(), t.Local())
+	if err != nil {
+		println(err)
+	}
 }
